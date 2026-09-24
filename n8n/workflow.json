@@ -1,0 +1,174 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clientes",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "dd29a8b4-51e6-4d05-b1a9-14844f6cccec",
+      "name": "Webhook",
+      "webhookId": "d10cc1a8-e008-4de0-9733-7c0da9b1d8fc"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1072,
+        0
+      ],
+      "id": "19f55526-eeb4-4507-bba7-0aa9cd7a4b76",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        0
+      ],
+      "id": "df34992f-a69d-4eb7-b590-a4f16f0fa8b0",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega o CSV como texto vindo do HTTP Request\nconst csvRaw = $json.data ?? $json.body ?? $json;\nconst text = (typeof csvRaw === \"string\") ? csvRaw : JSON.stringify(csvRaw);\n\nconst lines = text.split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\nconst headers = lines[0].split(\",\").map(h => h.trim());\n\nconst investimentos = lines.slice(1).map(line => {\n  const cols = line.split(\",\").map(c => c.trim());\n  const obj = {};\n  headers.forEach((h, i) => obj[h] = cols[i] ?? \"\");\n\n  // normaliza mínimo para número\n  obj.minimo = Number(String(obj.minimo).replace(/[^\\d]/g, \"\")) || 0;\n\n  return obj;\n});\n\nreturn [{ json: { investimentos } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        0
+      ],
+      "id": "1327fbef-b33b-43be-a216-709e9035b1d3",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        640,
+        -192
+      ],
+      "id": "f9be7c39-7c63-45c0-90cb-b56583dfaa29",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Captura os dados combinados vindos do nó Merge\nconst input = $json;\n\n// Garante o acesso aos clientes (do Webhook) e aos investimentos (do Code anterior)\nconst clientes = input.clientes || input.body?.clientes || [];\nconst investimentos = input.investimentos || [];\n\n// Função auxiliar para converter \"R$ 12.500,00\" para o número 12500\nfunction parseSaldo(saldoStr) {\n  if (typeof saldoStr === 'number') return saldoStr;\n  if (!saldoStr) return 0;\n  return Number(String(saldoStr).replace(/[^\\d]/g, '')) || 0;\n}\n\n// Função auxiliar para escolher um item aleatório de uma lista\nfunction pick(arr) {\n  return arr[Math.floor(Math.random() * arr.length)];\n}\n\nconst resultados = clientes.map(c => {\n  const saldoNum = parseSaldo(c.saldo);\n  const perfil = c.perfil;\n  const nome = c.nome;\n\n  // Encontra o investimento compatível com o perfil do cliente\n  const escolhido = investimentos.find(\n    inv => String(inv.perfil).toLowerCase() === String(perfil).toLowerCase()\n  ) || null;\n\n  let motivo = \"saldo_ok\";\n  if (escolhido && saldoNum < escolhido.minimo) {\n    motivo = \"saldo_insuficiente\";\n  }\n\n  // Gera as 3 variações de mensagens vistas no output do professor\n  const mensagens = escolhido ? [\n    `Olá ${nome}! Pelo seu perfil (${perfil}), uma boa opção é **${escolhido.produto}** (mínimo R$ ${escolhido.minimo}). Com seu saldo atual (${c.saldo}), você já consegue investir. Rentabilidade: ${escolhido.rentabilidade || escolhido.taxa || 'N/A'}.`,\n    `Oi ${nome}! Recomendação para perfil ${perfil}: **${escolhido.produto}** (mínimo R$ ${escolhido.minimo}). Seu saldo (${c.saldo}) já atende o mínimo. Rentabilidade: ${escolhido.rentabilidade || escolhido.taxa || 'N/A'}.`,\n    `${nome}, indo direto ao ponto: para o perfil ${perfil}, **${escolhido.produto}** (mínimo R$ ${escolhido.minimo}). Você tem ${c.saldo}, então dá pra aplicar. Rentabilidade: ${escolhido.rentabilidade || escolhido.taxa || 'N/A'}.`\n  ] : [\n    `Olá ${nome}, não encontramos um produto específico para o perfil ${perfil}.`\n  ];\n\n  return {\n    nome,\n    email: c.email,\n    perfil,\n    saldo_texto: c.saldo,\n    saldo_num: saldoNum,\n    recomendacao: escolhido,\n    motivo,\n    mensagens,\n    mensagem_escolhida: pick(mensagens)\n  };\n});\n\n// Retorna no mesmo formato da linha 112-118 do print\nreturn [{\n  json: {\n    ok: true,\n    total_clientes: resultados.length,\n    total_investimentos: investimentos.length,\n    resultados\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        0
+      ],
+      "id": "60610320-c919-43d0-afa1-34d3314a4034",
+      "name": "Code in JavaScript1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "42ff992e-2d8b-491a-bde2-98f03de22e1e",
+  "meta": {
+    "instanceId": "c1ea1406504f47b30e3cabe31c1283c4c7cf847da4e8d6d0a37aa0e3c4489f4d"
+  },
+  "nodeGroups": [],
+  "id": "kqz6x9kVKQfTwZWt",
+  "tags": []
+}
